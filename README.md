@@ -9,8 +9,10 @@
 - **파일**: [`kkotppa-archive.json`](./kkotppa-archive.json)
 - **공개 URL (고정)**: `https://raw.githubusercontent.com/jyjung621/kkotppa-archive/main/kkotppa-archive.json`
 - **갱신 주기**: 매일 13·18시 KST (ccdb 영속 스케줄러)
-- **출처**: HikerAPI (읽기 전용). **증분 수집** — 실행당 1요청(최신 12개)으로
-  신규 게시물을 누적하고, 기존 게시물은 썸네일 URL만 갱신한다.
+- **출처**: Bright Data Web Scraper API (Instagram - Posts). **증분 수집** — 실행당
+  최신 12건만 조회해 신규 게시물을 누적하고, 기존 게시물은 썸네일 URL만 갱신한다.
+- **비용**: 1 크레딧 = 1 레코드, 무료 등급 **월 5,000 크레딧**(매월 1일 갱신).
+  12건 × 하루 2회 × 30일 = 월 720 크레딧 ≈ 한도의 **14%** → 상시 무료.
 
 ### 스키마
 
@@ -45,19 +47,32 @@
 
 ## 수집기
 
-`collect.py` — 표준 라이브러리 + curl. `HIKERAPI_KEY`는 환경변수 또는 로컬
-`instagram-analysis/.mcp.json`에서 읽으며 **레포에 커밋되지 않는다**.
+`collect.py` — 표준 라이브러리 + curl. 토큰은 `BRIGHTDATA_TOKEN` 환경변수 또는
+`~/.brightdata-token`(레포 밖, 0600)에서 읽으며 **레포에 커밋되지 않는다**.
 
 ```bash
-python3 collect.py           # 증분 수집(1요청) + JSON + git push
-python3 collect.py --full    # 전체 백필(페이지네이션 끝까지) — 최초/과거보강용
+python3 collect.py           # 증분 수집(12건) + JSON + git push
+python3 collect.py --full    # 과거 백필(기본 150건)
+python3 collect.py --n 30    # 조회 건수 지정
 python3 collect.py --no-git  # JSON만(테스트)
 ```
 
-**증분 동작**: 1페이지(최신 12개)만 조회해서
+**증분 동작**: 최신 12건만 조회해서
 - 신규 게시물 → 전체 필드 추가(누적)
-- 기존 게시물 → `thumbnail_url`만 갱신 (같은 응답에 포함, 추가 요청 0건)
+- 기존 게시물 → `thumbnail_url`만 갱신 (같은 응답에 포함, 추가 비용 0)
 - 13번째 이하 → 손대지 않음
 
-실행당 **8요청 → 1요청**(월 480 → 60). 앱이 표시하는 썸네일은 상위 5개뿐이라
-1페이지로 표시분을 전부 덮는다.
+앱이 표시하는 썸네일은 상위 5개뿐이라 12건이면 표시분을 전부 덮는다.
+
+**호출 흐름** (비동기 3단계): `POST /datasets/v3/trigger` → `GET /progress/{id}`
+폴링 → `GET /snapshot/{id}`. 동기 `/scrape`는 무료 계정에서 `Customer is not active`로
+막히므로 쓰지 않는다. 실측 소요: 12건 약 40~60초.
+
+**필드 매핑**: `shortcode`→`code`, `url`→`permalink`, `description`→`caption`,
+`date_posted`→`taken_at`(밀리초 제거), `thumbnail`→`thumbnail_url`,
+`content_type`→`product_type`(Image→feed, Carousel→carousel, Video/Reel→clips).
+
+### 폴백
+
+`collect_hikerapi.py` — 이전 HikerAPI 구현. Bright Data 무료 등급 정책이 바뀌면
+이쪽으로 되돌릴 수 있다(단 HikerAPI는 잔액 충전 필요). 출력 계약 스키마는 동일.
